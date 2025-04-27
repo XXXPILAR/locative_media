@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Locative Media - Wind Beast Challenge</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    html, body { height: 100%; margin: 0; font-family: Arial; }
+    #map { height: 100%; }
+    .modal {
+      position: fixed;
+      z-index: 999;
+      left: 0; top: 0;
+      width: 100%; height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-content {
+      background: #fff;
+      border-radius: 12px;
+      padding: 30px;
+      max-width: 90%;
+      width: 400px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    .modal-content img {
+      max-width: 100%;
+      width: 160px;
+      height: auto;
+      margin: 15px 0;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    .modal-content button {
+      margin: 8px;
+      padding: 10px 20px;
+      font-size: 16px;
+      border-radius: 8px;
+      border: none;
+      background-color: #4caf50;
+      color: white;
+      cursor: pointer;
+    }
+    .modal-content button:hover { background-color: #388e3c; }
+    #inventoryButton, #clueButton, #healthBar {
+      position: absolute;
+      z-index: 1000;
+      background-color: #ffffffcc;
+      border: 1px solid #999;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    #inventoryButton {
+      top: 10px;
+      left: 10px;
+    }
+
+    #clueButton {
+      top: 60px; /* 稍微往下，避免跟Cards按钮重叠 */
+      left: 10px;
+    }
+
+    #healthBar {
+      top: 10px;
+      right: 10px;
+      font-size: 20px;
+    }
+
+    #scanButton {
+        top: 110px;
+        left: 10px;
+        position: absolute;
+        z-index: 1000;
+        background-color: #ffffffcc;
+        border: 1px solid #999;
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    #closeScannerBtn {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        background: transparent;
+        border: none;
+        font-size: 36px;
+        color: white;
+        font-weight: bold;
+        cursor: pointer;
+        z-index: 1001; /* 高于video */
+    }
+
+    @keyframes bossHit {
+      0% { transform: translate(0, 0) rotate(0deg); }
+      25% { transform: translate(-5px, 0) rotate(-5deg); }
+      50% { transform: translate(5px, 0) rotate(5deg); }
+      75% { transform: translate(-5px, 0) rotate(-5deg); }
+      100% { transform: translate(0, 0) rotate(0deg); }
+    }
+
+    @keyframes buttonPress {
+      0% { transform: scale(1); }
+      50% { transform: scale(0.9); }
+      100% { transform: scale(1); }
+    }
+
+    /* 爆炸粒子飞散动画 */
+    @keyframes explode {
+      0% { transform: translate(0, 0) scale(1); opacity: 1; }
+      100% { transform: translate(var(--dx), var(--dy)) scale(0); opacity: 0; }
+    }
+
+    .explosion {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      background: gold;
+      border-radius: 50%;
+      pointer-events: none;
+      animation: explode 0.6s forwards;
+      z-index: 1002;
+    }
+
+    
+
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="inventoryButton" onclick="toggleInventory()">📦 Cards</div>
+  <div id="clueButton" onclick="toggleClues()">🧩 Clues</div>
+  <div id="scanButton" onclick="startScanner()">📸 Scan</div>
+  <div id="healthBar"> <span id="hearts"></span></div>
+
+  <div id="challengeModal" class="modal">
+    <div class="modal-content">
+      <h2>You encountered Wind Beast! 🌬️</h2>
+      <img src="wind_beast.png" alt="Wind Beast" />
+      <p>Do you accept the challenge?</p>
+      <button onclick="acceptChallenge()">Accept Challenge</button>
+      <button onclick="closeModal()">Run Away</button>
+    </div>
+  </div>
+
+  <div id="quizModal" class="modal">
+    <div class="modal-content">
+      <h2 id="quizTitle">Quiz</h2>
+      <p id="question"></p>
+      <button onclick="answer(true)">True</button>
+      <button onclick="answer(false)">False</button>
+    </div>
+  </div>
+
+  <div id="puzzleModal" class="modal">
+    <div class="modal-content">
+      <h2>🧩 Solve the Puzzle to Tame Smart Goose!</h2>
+      <h3 id="timer" style="margin-bottom: 10px;">⏳ 60</h3>
+      <div id="puzzleGrid" style="display: grid; grid-template-columns: repeat(3, 100px); grid-template-rows: repeat(3, 100px); gap: 2px; justify-content: center; margin-bottom: 20px;"></div>
+      <button onclick="checkPuzzle()">Check</button>
+      <button onclick="closeResultModal('puzzleModal')">Leave</button>
+    </div>
+  </div>
+
+
+  <div id="successModal" class="modal">
+    <div class="modal-content">
+      <h2>🎉 You Tamed Wind Beast!</h2>
+      <img src="wind_beast.png" alt="Wind Beast" />
+      <p>The wind flows with you now. Congratulations!</p>
+      <button onclick="closeResultModal('successModal')">OK</button>
+    </div>
+  </div>
+
+  <div id="failModal" class="modal">
+    <div class="modal-content">
+      <h2 id="failTitle">😢 Challenge Failed</h2>
+      <img id="failImage" src="wind_beast.png" alt="Beast" />
+      <p id="failMessage">The Wind Beast slipped away. Try again later.</p>
+      <button onclick="retryChallenge()">Retry</button>
+      <button onclick="handleFailRetry()">Leave</button>
+    </div>
+  </div>
+
+  <div id="gameOverModal" class="modal">
+    <div class="modal-content">
+      <h2>❌ Game Over</h2>
+      <p>Your journey ends here... for now.</p>
+      <button onclick="restartGame()">Restart Game</button>
+    </div>
+  </div>
+
+  <div id="inventoryModal" class="modal">
+    <div class="modal-content">
+      <h2>📜 Your Beast Cards</h2>
+      <div id="inventoryContent">
+        <p>No tamed beasts yet.</p>
+      </div>
+      <button onclick="closeResultModal('inventoryModal')">Close</button>
+    </div>
+  </div>
+
+  <div id="clueModal" class="modal">
+    <div class="modal-content">
+      <h2>🧩 Your Clues</h2>
+      <div id="clueContent">
+        <p>No clues collected yet.</p>
+      </div>
+      <button onclick="closeResultModal('clueModal')">Close</button>
+    </div>
+  </div>
+
+  <div id="clueRewardModal" class="modal">
+    <div class="modal-content">
+      <h2 id="clueRewardTitle">🧩 You found a clue!</h2>
+      <img id="clueRewardImage" src="" alt="Clue Piece" />
+      <p id="clueRewardText">Wind Beast left you a mysterious clue...</p>
+      <button onclick="collectClue()">Collect</button>
+    </div>
+  </div>
+
+  <div id="scanNoticeModal" class="modal">
+    <div class="modal-content">
+      <h2>📸 Ready to Scan!</h2>
+      <p>You have collected enough clues. Find and scan the hidden poster to summon the BOSS!</p>
+      <button onclick="startScanPage()">OK</button>
+    </div>
+  </div>
+
+  <div id="bossEncounterModal" class="modal">
+    <div class="modal-content">
+      <h2>You found the BOSS! 👹</h2>
+      <img src="boss.png" alt="Boss" style="width: 200px; height: auto; margin: 20px 0;">
+      <p>The final battle awaits. Are you ready?</p>
+      <button onclick="startBossBattle()">Challenge Boss</button>
+    </div>
+  </div>
+
+  <div id="trapModal" class="modal">
+    <div class="modal-content">
+      <h2>💀 Trap Triggered!</h2>
+      <p>You fell into UoN King's trap!</p>
+      <button onclick="handleTrapOk()">OK</button>
+    </div>
+  </div>
+
+  <div id="scannerModal" class="modal" style="background: rgba(0,0,0,0.9);">
+    <div id="scannerVideo" style="width: 100%; height: 100%;"></div>
+    <button onclick="closeScanner()" id="closeScannerBtn">×</button>
+  </div>
+
+  <div id="bossBattleModal" class="modal">
+    <div class="modal-content" style="position: relative;">
+      <div style="position: relative; margin-bottom: 10px;">
+        <div id="bossHealthBarBackground" style="width: 100%; height: 20px; background: grey; border-radius: 10px; overflow: hidden;">
+          <div id="bossHealthBar" style="width: 100%; height: 100%; background: red; transition: width 0.2s;"></div>
+        </div>
+      </div>
+  
+      <h2>⚔️ Boss Battle!</h2>
+      <img id="bossImage" src="boss.png" alt="Boss" style="width: 200px; height: auto; margin: 20px 0;">
+      <button onclick="attackBoss()">Attack!</button>
+    </div>
+  </div>
+
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <script>
+    let map, userMarker;
+    let activeBeast = null; // tracks which beast you're challenging
+    let quizStarted = false, hasEncountered = {}, health = 3, inventory = [], current = 0;
+
+    const threshold = 20;
+    const beasts = [
+      {
+        name: "Wind Beast",
+        lat: 52.9518391,
+        lng: -1.1873593,
+        icon: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
+        image: "wind_beast.png",
+        questions: [
+          { q: "Wind Beast is a fire element?", a: false },
+          { q: "Is Wind Beast smart?", a: true },
+          { q: "Can Wind Beast be tamed by kindness?", a: true }
+        ]
+      },
+      {
+        name: "Fire dragon",
+        lat: 52.9534064,
+        lng: -1.1874079,
+        icon: "https://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
+        image: "fire_dragon.png",
+      }
+    ];
+
+    let markers = {}; // save markers by name
+
+    function initMap() {
+      map = L.map('map').setView([beasts[0].lat, beasts[0].lng], 17);
+      L.tileLayer('https://tiles.stadiamaps.com/tiles/stamen_toner/{z}/{x}/{y}{r}.png?api_key=724f6bff-ee73-4e21-97aa-b0f55c520723').addTo(map);
+
+      const userIcon = L.icon({ iconUrl: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', iconSize: [32, 32] });
+
+      beasts.forEach(beast => {
+        const marker = L.marker([beast.lat, beast.lng], {
+          icon: L.icon({ iconUrl: beast.icon, iconSize: [32, 32] })
+        }).addTo(map);
+
+        markers[beast.name] = marker;
+
+        marker.on('click', () => {
+          if (!quizStarted && userMarker) {
+            const dist = getDistance(userMarker.getLatLng(), marker.getLatLng());
+
+            if (hasEncountered[beast.name]) {
+              // ✅已经遇到过
+              if (dist < threshold && !inventory.includes(beast.name)) {
+                // ⭐ 距离够近，直接挑战
+                activeBeast = beast;
+                document.querySelector('#challengeModal h2').textContent = `You encountered ${beast.name}!`;
+                document.querySelector('#challengeModal img').src = beast.image;
+                document.querySelector('#challengeModal').style.display = 'flex';
+              } else {
+                // 👀 距离太远，显示正常提示
+                marker.bindPopup(`${beast.name} is here. Come closer to challenge!`).openPopup();
+              }
+            } else {
+              // 🧩从未遇到过，只能感知神秘感
+              marker.bindPopup(`You sense a mysterious presence❓`).openPopup();
+            }
+          }
+        });
+      });
+
+      navigator.geolocation.watchPosition(
+        pos => {
+          const latlng = [pos.coords.latitude, pos.coords.longitude];
+
+          if (!userMarker) {
+            userMarker = L.marker(latlng, { icon: userIcon }).addTo(map).bindPopup("You are here").openPopup();
+          } else {
+            userMarker.setLatLng(latlng).update();
+          }
+
+          // 关键！直接setView，取消动画，瞬间跟随
+          map.setView(latlng, map.getZoom(), { animate: false });
+
+          // 检查附近beasts
+          beasts.forEach(beast => {
+            const dist = getDistance(userMarker.getLatLng(), { lat: beast.lat, lng: beast.lng });
+            if (dist < threshold && (hasEncountered[beast.name] === false || hasEncountered[beast.name] === undefined)) {
+              hasEncountered[beast.name] = true; 
+              activeBeast = beast;
+              document.querySelector('#challengeModal h2').textContent = `You encountered ${beast.name}!`;
+              document.querySelector('#challengeModal img').src = beast.image;
+              document.querySelector('#challengeModal').style.display = 'flex';
+            }
+          });
+        },
+        err => {
+          console.error("Geolocation error:", err);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 5000
+        }
+      );
+    }
+
+    function getDistance(a, b) {
+      const R = 6371e3, toRad = deg => deg * Math.PI / 180;
+      const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lng - a.lng);
+      const lat1 = toRad(a.lat), lat2 = toRad(b.lat);
+      const aCalc = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(aCalc), Math.sqrt(1-aCalc));
+    }
+
+
+
+    function closeModal() {
+      document.getElementById("challengeModal").style.display = "none";
+    }
+
+    function showQuestion() {
+      // 设置 quiz modal 的标题为当前 beast 的名字
+      document.querySelector("#quizModal h2").textContent = `🧠 ${activeBeast.name} Quiz`;
+      // 设置问题内容
+      document.getElementById("question").textContent = activeBeast.questions[current].q;
+    }
+
+    function answer(ans) {
+      if (ans === activeBeast.questions[current].a) {
+        current++;
+        if (current >= activeBeast.questions.length) return tameSuccess();
+        return showQuestion();
+      } else {
+        document.getElementById("quizModal").style.display = "none";
+        health = Math.max(0, health - 1);
+        updateHearts();
+
+        // 👇 动态更新失败弹窗的内容
+        document.getElementById("failTitle").textContent = `😢 Challenge Failed`;
+        document.getElementById("failImage").src = activeBeast.image;
+        document.getElementById("failMessage").textContent = `The ${activeBeast.name} slipped away. Try again later.`;
+
+        quizStarted = false;
+        if (health <= 0) {
+          document.getElementById("gameOverModal").style.display = "flex";
+        } else {
+          document.getElementById("failModal").style.display = "flex";
+        }
+      }
+    }
+
+    function tameSuccess() {
+        document.getElementById("quizModal").style.display = "none";
+        document.querySelector("#successModal h2").textContent = `🎉 You Tamed ${activeBeast.name}!`;
+        document.querySelector("#successModal img").src = activeBeast.image;
+        document.getElementById("successModal").style.display = "flex";
+
+        if (map.hasLayer(markers[activeBeast.name])) map.removeLayer(markers[activeBeast.name]);
+
+        if (!inventory.includes(activeBeast.name)) {
+            inventory.push(activeBeast.name);
+            const inventoryContent = document.getElementById("inventoryContent");
+            if (inventoryContent.innerHTML.includes("No tamed beasts yet.")) {
+            inventoryContent.innerHTML = '';
+            }
+            inventoryContent.innerHTML += `<div style="display: inline-block; margin: 10px;"><img src="${activeBeast.image}" style="width: 100px; height: 100px;"><p>${activeBeast.name}</p></div>`;
+        }
+
+        quizStarted = false;
+        hasEncountered[activeBeast.name] = "tamed";
+
+        // ⭐ 监听"OK"按钮，当成功弹窗关闭后，立刻弹出线索奖励
+        const okButton = document.querySelector("#successModal button");
+        okButton.onclick = () => {
+            document.getElementById("successModal").style.display = "none";
+            showClueReward();
+        };
+        }
+
+    function retryChallenge() {
+      document.getElementById("failModal").style.display = "none";
+      acceptChallenge(); 
+    }
+
+    function handleFailRetry() {
+      document.getElementById("failModal").style.display = "none";
+    }
+
+    function restartGame() { location.reload(); }
+
+    function closeResultModal(id) {
+      document.getElementById(id).style.display = "none";
+    }
+
+    function toggleInventory() {
+      const inv = document.getElementById("inventoryModal");
+      inv.style.display = inv.style.display === "flex" ? "none" : "flex";
+    }
+    function toggleClues() {
+      const clue = document.getElementById("clueModal");
+      clue.style.display = clue.style.display === "flex" ? "none" : "flex";
+    }
+
+    function updateHearts() {
+      const hearts = document.getElementById("hearts");
+      hearts.innerHTML = '';
+      for (let i = 0; i < 3; i++) {
+        hearts.innerHTML += i < health ? '❤️' : '🤍';
+      }
+    }
+
+    window.onload = () => {
+      initMap();
+      updateHearts();
+    }
+    
+  const puzzlePieces = [];
+
+  let selectedPiece = null;
+
+  function selectPiece(piece) {
+    if (!selectedPiece) {
+      // 第一次点击，选中
+      selectedPiece = piece;
+      piece.style.border = "2px solid red"; // 显示红色边框作为提示
+    } else {
+      // 第二次点击，交换位置
+      const tempPos = selectedPiece.style.backgroundPosition;
+      selectedPiece.style.backgroundPosition = piece.style.backgroundPosition;
+      piece.style.backgroundPosition = tempPos;
+
+      selectedPiece.style.border = "none";
+      piece.style.border = "none";
+
+      selectedPiece = null; // 清空选中状态
+    }
+  }
+
+  function startPuzzleChallenge() {
+    disableMapInteraction(); // ⭐ 加这行
+    const puzzleGrid = document.getElementById("puzzleGrid");
+    puzzleGrid.innerHTML = "";
+    puzzlePieces.length = 0;
+
+    for (let i = 0; i < 9; i++) {
+      const piece = document.createElement("div");
+      piece.style.width = "100px";
+      piece.style.height = "100px";
+      piece.style.backgroundImage = "url('fire_dragon.png')"; // ✅改小写
+      piece.style.backgroundSize = "300px 300px";
+      piece.style.backgroundPosition = `${-(i % 3) * 100}px ${-Math.floor(i / 3) * 100}px`;
+      piece.dataset.index = i;
+      piece.onclick = () => selectPiece(piece); // ⭐绑定新的点击事件
+      puzzlePieces.push(piece);
+    }
+
+    shuffleArray(puzzlePieces);
+    puzzlePieces.forEach(p => puzzleGrid.appendChild(p));
+
+    document.getElementById("puzzleModal").style.display = "flex";
+
+    quizStarted = true;
+    startTimer();
+  }
+
+  function dragStart(e) {
+    e.dataTransfer.setData("text/plain", e.target.dataset.index);
+  }
+
+  function drop(e) {
+    const fromIdx = e.dataTransfer.getData("text/plain");
+    const toIdx = e.target.dataset.index;
+    const parent = e.target.parentElement;
+    const fromEl = puzzlePieces[fromIdx];
+    const toEl = puzzlePieces[toIdx];
+
+    // Swap in DOM
+    const temp = fromEl.cloneNode(true);
+    parent.replaceChild(temp, toEl);
+    parent.replaceChild(toEl, fromEl);
+
+    // Re-bind drag events
+    parent.childNodes.forEach((child, i) => {
+      child.dataset.index = i;
+      child.ondragstart = dragStart;
+      child.ondragover = e => e.preventDefault();
+      child.ondrop = drop;
+      puzzlePieces[i] = child;
+    });
+  }
+
+
+  let timerInterval; // 计时器句柄
+  let remainingTime = 60; // 剩余时间，秒
+
+  function startTimer() {
+    remainingTime = 60;
+    document.getElementById("timer").textContent = `⏳ ${remainingTime}`;
+    clearInterval(timerInterval); // 防止多开
+
+    timerInterval = setInterval(() => {
+      remainingTime--;
+      document.getElementById("timer").textContent = `⏳ ${remainingTime}`;
+      if (remainingTime <= 0) {
+        clearInterval(timerInterval);
+        checkPuzzle(true); // 时间到了自动检查
+      }
+    }, 1000);
+  }
+
+  // isAuto 表示是不是自动检查
+  function checkPuzzle(isAuto = false) {
+    clearInterval(timerInterval); // 无论怎样都停掉计时器
+    enableMapInteraction();   // 恢复地图交互
+
+    const correctOrder = [0,1,2,3,4,5,6,7,8];
+    const currentOrder = Array.from(document.getElementById("puzzleGrid").children).map(el => {
+      const bgPos = el.style.backgroundPosition;
+      const x = parseInt(bgPos.split(" ")[0]) * -1 / 100;
+      const y = parseInt(bgPos.split(" ")[1]) * -1 / 100;
+      return y * 3 + x;
+    });
+
+    const isCorrect = currentOrder.every((val, idx) => val === correctOrder[idx]);
+
+    if (isCorrect) {
+      document.getElementById("puzzleModal").style.display = "none";
+      tameSuccess();
+    } else {
+      document.getElementById("puzzleModal").style.display = "none";
+      health = Math.max(0, health - 1);
+      updateHearts();
+      document.getElementById("failTitle").textContent = `😢 Puzzle Failed`;
+      document.getElementById("failImage").src = activeBeast.image;
+      document.getElementById("failMessage").textContent = isAuto 
+        ? `Time's up! ${activeBeast.name} slipped away.` 
+        : `Wrong puzzle arrangement! ${activeBeast.name} slipped away.`;
+
+      if (health <= 0) {
+        document.getElementById("gameOverModal").style.display = "flex";
+      } else {
+        document.getElementById("failModal").style.display = "flex";
+      }
+      quizStarted = false;
+    }
+  }
+
+  function shuffleArray(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+  }
+
+  // Update the acceptChallenge() logic to launch quiz or puzzle based on beast
+  function acceptChallenge() {
+    document.getElementById("challengeModal").style.display = "none";
+    current = 0; // 重置问题索引
+
+    if (activeBeast.name === "Fire dragon") {
+      startPuzzleChallenge();
+    } else {
+      quizStarted = true;
+      document.getElementById("quizModal").style.display = "flex";
+      showQuestion();
+    }
+  }
+
+  function disableMapInteraction() {
+    map.dragging.disable();
+    map.scrollWheelZoom.disable();
+    map.touchZoom.disable();
+    map.doubleClickZoom.disable();
+    map.boxZoom.disable();
+    map.keyboard.disable();
+  }
+
+  function enableMapInteraction() {
+    map.dragging.enable();
+    map.scrollWheelZoom.enable();
+    map.touchZoom.enable();
+    map.doubleClickZoom.enable();
+    map.boxZoom.enable();
+    map.keyboard.enable();
+  }
+  let collectedClues = []; // 保存已经获得的线索碎片
+    const clues = {
+    "Wind Beast": "clue2.png",
+    "Fire dragon": "clue1.png"
+    };
+
+    function showClueReward() {
+        const clueImg = clues[activeBeast.name];
+        if (clueImg && !collectedClues.includes(clueImg)) {
+            document.getElementById("clueRewardImage").src = clueImg;
+            document.getElementById("clueRewardText").textContent = `${activeBeast.name} gave you a clue piece!`;
+            document.getElementById("clueRewardModal").style.display = "flex";
+        }
+        }
+
+    let scanPromptShown = false;    
+    function collectClue() {
+        const clueImg = document.getElementById("clueRewardImage").src;
+        collectedClues.push(clueImg);
+
+        const clueContent = document.getElementById("clueContent");
+        if (clueContent.innerHTML.includes("No clues collected yet.")) {
+            clueContent.innerHTML = '';
+        }
+        clueContent.innerHTML += `<div style="display: inline-block; margin: 10px;"><img src="${clueImg}" style="width: 100px; height: 100px;"></div>`;
+
+        document.getElementById("clueRewardModal").style.display = "none";
+
+        // 🧩⭐【新增】收集两个线索后提示可以去扫描
+        if (collectedClues.length >= 2 && !scanPromptShown) {
+            scanPromptShown = true;
+            showScanPrompt();
+        }
+    }
+
+    let html5QrScanner = null; // 保存scanner对象
+
+    function startScanner() {
+        if (html5QrScanner) {
+            // 如果scanner已经打开了，就不要重复打开
+            return;
+        }
+        const scannerModal = document.getElementById("scannerModal");
+        scannerModal.style.display = "flex";
+
+        html5QrScanner = new Html5Qrcode("scannerVideo");
+
+        html5QrScanner.start(
+            { facingMode: "environment" }, // 直接用后置摄像头，不列设备了
+            { fps: 10, qrbox: 250 },        // 可调帧率和扫码区域大小
+            qrCodeMessage => {
+                handleScanResult(qrCodeMessage);
+            },
+            errorMessage => {
+                // 这里可以选择忽略识别失败的错误，不弹窗
+                console.warn("QR Code scan error:", errorMessage);
+            }
+        ).catch(err => {
+            console.error("Camera error:", err);
+            alert("Cannot access camera!");
+            closeScanner();
+        });
+    }
+
+    function closeScanner() {
+        const scannerModal = document.getElementById("scannerModal");
+        scannerModal.style.display = "none";
+
+        if (html5QrScanner) {
+            html5QrScanner.stop().then(() => {
+                html5QrScanner.clear();
+                html5QrScanner = null;
+            }).catch(err => {
+                console.error("Error stopping scanner", err);
+            });
+        }
+    }
+
+    function showScanPrompt() {
+        document.getElementById("scanNoticeModal").style.display = "flex";
+    }
+
+    function startScanPage() {
+        document.getElementById("scanNoticeModal").style.display = "none";
+    }
+
+    function handleScanResult(result) {
+        console.log("Scanned:", result);
+
+        if (result === "boss_target") {
+            closeScanner();
+            document.getElementById("bossEncounterModal").style.display = "flex"; // 显示Boss挑战弹窗
+        } else if (result.startsWith("trap")) {
+            closeScanner();
+            
+            // 扫到陷阱直接扣光血！
+            health = 0;
+            updateHearts();
+
+            // 弹出陷阱提示弹窗
+            showTrapModal();
+        } else {
+            // 其他情况，继续扫描
+        }
+    }
+
+    function showTrapModal() {
+        document.getElementById("trapModal").style.display = "flex";
+    }
+
+    function handleTrapOk() {
+        document.getElementById("trapModal").style.display = "none";
+
+        // 不需要检查血量，直接Game Over
+        document.getElementById("gameOverModal").style.display = "flex";
+    }
+
+    let bossHealth = 30;
+    let maxBossHealth = 30;
+    let bossBattleTimer = null;
+
+    function startBossBattle() {
+        document.body.style.touchAction = "manipulation"; // ⭐开始Boss战斗时禁用缩放
+        // 关闭遇到Boss的弹窗
+        document.getElementById("bossEncounterModal").style.display = "none";
+        // 打开Boss战斗界面
+        document.getElementById("bossBattleModal").style.display = "flex";
+
+        // 初始化Boss血量
+        bossHealth = 30;
+        maxBossHealth = 30; // ⭐ 补上这一行！（和玩家血量一样）
+
+        updateBossBattleUI(); // 刷新血条到满血
+
+        // ⭐ 开始Boss攻击倒计时：每6秒扣1滴血
+        bossBattleTimer = setInterval(() => {
+            health = Math.max(0, health - 1);
+            updateHearts();
+
+            if (health <= 0) {
+                clearInterval(bossBattleTimer); // ⭐ 记得清除计时器
+                endBossBattle(false); // 输了
+            }
+        }, 6000);
+    }
+
+    function attackBoss() {
+        if (bossHealth > 0) {
+            bossHealth--;
+            updateBossBattleUI(); // ⬅️ 血条同步刷新
+        }
+
+        // ✨ 加打击特效
+        const bossImg = document.getElementById("bossImage");
+        bossImg.style.animation = "bossHit 0.5s";
+        bossImg.addEventListener("animationend", () => {
+            bossImg.style.animation = "";
+        }, { once: true });
+
+        const attackButton = document.querySelector("#bossBattleModal button");
+        attackButton.style.animation = "buttonPress 0.2s";
+        attackButton.addEventListener("animationend", () => {
+            attackButton.style.animation = "";
+        }, { once: true });
+
+        spawnExplosion(); // 爆炸特效
+
+        if (bossHealth <= 0) {
+            endBossBattle(true); // 🎉胜利
+        }
+    }
+
+
+    function endBossBattle(victory) {
+        clearInterval(bossBattleTimer);
+        document.body.style.touchAction = "";  // ⭐结束时恢复正常缩放！
+
+        document.getElementById("bossBattleModal").style.display = "none";
+
+        if (victory) {
+            showVictoryModal();
+        } else {
+            document.getElementById("gameOverModal").style.display = "flex";
+        }
+    }
+
+    function showVictoryModal() {
+        const victoryModal = document.createElement("div");
+        victoryModal.className = "modal";
+        victoryModal.id = "victoryModal";
+        victoryModal.innerHTML = `
+          <div class="modal-content" style="text-align: center;">
+            <h2 style="font-size: 40px; color: gold;">🏆 YOU WIN!</h2>
+            <p style="font-size: 24px;">You defeated the mighty Boss!</p>
+            <img src="boss.png" style="width: 150px; height: auto; margin: 20px 0;">
+            <p>Congratulations, Hero!</p>
+            <button onclick="restartGame()">Restart</button>
+          </div>
+        `;
+        document.body.appendChild(victoryModal);
+        victoryModal.style.display = "flex";
+    }
+
+    function updateBossBattleUI() {
+        const bossHealthBar = document.getElementById("bossHealthBar");
+        const percentage = (bossHealth / maxBossHealth) * 100;
+        bossHealthBar.style.width = `${percentage}%`;
+    }
+
+    function spawnExplosion() {
+        const explosionContainer = document.getElementById("bossBattleModal");
+
+        for (let i = 0; i < 10; i++) { // 10个小粒子
+            const particle = document.createElement("div");
+            particle.className = "explosion";
+
+            // 随机方向
+            const dx = (Math.random() - 0.5) * 200 + "px";
+            const dy = (Math.random() - 0.5) * 200 + "px";
+
+            particle.style.setProperty("--dx", dx);
+            particle.style.setProperty("--dy", dy);
+
+            // 粒子起始位置在boss图片中心附近
+            particle.style.left = "50%";
+            particle.style.top = "40%";
+
+            explosionContainer.appendChild(particle);
+
+            // 动画完了自动删除
+            particle.addEventListener("animationend", () => {
+                particle.remove();
+            });
+        }
+    }
+
+
+  </script>
+</body>
+</html>
